@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <title>io-querystring plugin</title>
+    
+</head>
+<body>
+
+look at the console.
+
+<script src="../../build/yui/yui-debug.js"></script>
+<script src="../../build/event/event-debug.js"></script>
+<script src="../../build/io/io-debug.js"></script>
+<script src="../../build/querystring/querystring-debug.js"></script>
+<script src="../../build/collection/collection-debug.js"></script>
+<script>
+YUI({
+    base : '../../build/',
+    filter : 'debug',
+    useBrowserConsole : true,
+    // logInclude : {
+    //     TestRunner : true,
+    //     querystring : true,
+    //     QueryString: true
+    // }
+}).use('node', 'io', 'querystring', function (Y) {
+    window.Y = Y;
+    console.log(Y);
+    Y.on("io:start", function () {
+        console.log(arguments);
+    });
+    Y.io("/", {
+        data : {
+            foo : "bar"
+        }
+    });
+});
+</script>
+</body>
+</html>
