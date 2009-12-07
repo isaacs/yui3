@@ -34,7 +34,7 @@ function onAvail (el, args) {
 function attachProxy (node, args, category) {
     // args = [type, fn, el, o, ...]
     // node.on(type, fn, o, ...);
-    args[0] = globalCategory + category + ceName(node);
+    args[0] = category + ceName(node);
     args.splice(2,1);
     
     // if event-custom is loaded, then this is gonna do something.
