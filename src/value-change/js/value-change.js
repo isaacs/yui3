@@ -58,18 +58,6 @@ function handleDom (event, handler, node, category) {
     Y.after(Y.bind(Y.detach, Y, category), Y.on(category + event, handler, node), "detach");
 };
 
-// call this after detaching a CE handler
-function afterDetach (node, category) {
-    var reg = registry[ ceName(node) ];
-    if (!reg) return;
-    reg.count --;
-    if (force) reg.count = 0;
-    if (reg.count <= 0) {
-        delete registry[ ceName(node) ];
-        for (var i in reg.handles) reg.handles[i].detach();
-    }
-};
-
 var registry = {},
     event = {
         on : function (type, fn, el, o) {
@@ -113,6 +101,7 @@ var registry = {},
             var key = ceName(node);
             // avoid duplicates
             stopPolling(node);
+            // TODO: use Y.later()
             intervals[key] = setInterval(Y.bind(poller, null, node, e), 50);
             timeouts[key] = setTimeout(Y.bind(stopPolling, null, node), 10000);
         };
