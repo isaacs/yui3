@@ -116,7 +116,7 @@ Y.ACWidget = Y.extend(
             if (!data) return self;
             self[_selectedIndex] = -1;
             self[_originalValue] = "";
-            self.get("contentBox").set("innerHTML", self.getListMarkup(data)); //INHERITED
+            self.get("contentBox").set("content", self.getListMarkup(data)); //INHERITED
             return self;
         },
         /**
