@@ -38,7 +38,7 @@ Y.Plugin.ACPlugin = Y.extend(
         initializer : function () {
             var self = this,
                 host = self.get("host");
-            self.handles = attachHandles(self, host);
+            attachHandles(self, host);
 
             // publish events:
             // "query" for when value changes.
@@ -69,7 +69,7 @@ Y.Plugin.ACPlugin = Y.extend(
             manageBrowserAC(host);
         },
         destructor : function () {
-            YArrayeach(this.handles, function (h) { h.detach() });
+            Y.detach(Y.stamp(this)+"|");
         },
         open : function () { this.fire("ac:show") },
         next : function (e) { e.preventDefault(); this.fire("ac:next") },
@@ -193,16 +193,14 @@ Y.Plugin.ACPlugin = Y.extend(
  * @private
  **/
 function attachHandles (self, host) {
-    return [
-        // query on valueChange
-        Y.on("valueChange", valueChangeHandler, host, self),
-        // next/open on down
-        Y.on("key", self.next, host, "down:40", self),
-        // previous on up
-        Y.on("key", self.previous, host, "down:38", self),
-        // close on escape
-        Y.on("key", self.close, host, "down:27", self)
-    ];
+    var category = Y.stamp(this)+"|";
+    Y.on(category+"valueChange", valueChangeHandler, host, self);
+    // next/open on down
+    Y.on(category+"key", self.next, host, "down:40", self);
+    // previous on up
+    Y.on(category+"key", self.previous, host, "down:38", self);
+    // close on escape
+    Y.on(category+"key", self.close, host, "down:27", self);
 };
 
 /**

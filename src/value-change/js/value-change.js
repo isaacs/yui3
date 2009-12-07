@@ -22,16 +22,6 @@
  * @return {Event.Handle} the detach handle
  **/
 
-function toNodeList (el) { return (
-    (Y.Lang.isString(el) || Y.Lang.isArray(el))
-        ? Y.all(el)
-    : (el instanceof Y.Node)
-        ? Y.all([el._node])
-    : (el instanceof Y.NodeList)
-        ? el
-    : Y.all([el])
-)};
-
 function onAvail (el, args) {
     var h = Y.on("available", function () {
         h.handle = Y.on.apply(Y, args);
@@ -39,10 +29,10 @@ function onAvail (el, args) {
     return h;
 };
 
-function attachProxy (node, args) {
+function attachProxy (node, args, category) {
     // args = [type, fn, el, o, ...]
     // node.on(type, fn, o, ...);
-    args[0] = ceName(node);
+    args[0] = globalCategory + category + ceName(node);
     args.splice(2,1);
     
     // if event-custom is loaded, then this is gonna do something.
@@ -51,44 +41,25 @@ function attachProxy (node, args) {
         broadcast : true,
         emitFacade : true
     });
-
-    var registry = attachTriggers(node),
-        proxyHandle = node.on.apply(node, args);
-    
-    return proxyHandle;
+    attachDomEventHandlers(domEventHandlers, node, category);
+    return node.on.apply(node, args);
 };
 
 function ceName (node) {
     return Y.stamp(node) + "-" + eventName;
 };
 
-function attachDomEventHandlers (handlers, node) {
-    var handles = {};
-    for (var i in handlers) {
-        handles[i] = handleDom(i, handlers[i], node);
-    }
-    return handles;
-};
-
 // attach the dom events that will trigger the CE
-function attachTriggers (node) {
-    var key = ceName(node);
-    var reg = registry[ key ] = registry[ key ] || {
-        count : 0,
-        handles : attachDomEventHandlers(domEventHandlers, node)
-    };
-    reg.count++;
-    return reg;
+function attachDomEventHandlers (handlers, node, category) {
+    for (var i in handlers) handleDom(i, handlers[i], node, category);
 };
 
-function handleDom (event, handler, node) {
-    var handle = Y.on(event, handler, node);
-    Y.after(Y.bind(afterDetach, null, node, true), handle, "detach");
-    return handle;
+function handleDom (event, handler, node, category) {
+    Y.after(Y.bind(Y.detach, Y, category), Y.on(category + event, handler, node), "detach");
 };
 
 // call this after detaching a CE handler
-function afterDetach (node, force) {
+function afterDetach (node, category) {
     var reg = registry[ ceName(node) ];
     if (!reg) return;
     reg.count --;
@@ -103,22 +74,32 @@ var registry = {},
     event = {
         on : function (type, fn, el, o) {
             var args = Y.Array(arguments, 0, true),
-                nodeList = toNodeList(el);
+                nodeList = Y.all(
+                    (Y.Lang.isString(el) || Y.Lang.isArray(el))
+                        ? el : [el]
+                );
             if (nodeList.size() === 0) return onAvail(el, args);
             
             args[3] = o = o || ((nodeList.size() === 1) ? nodeList.item(0) : nodeList);
             
-            var handles = [];
+            var handles = [],
+                category,
+                categories = [];
             nodeList.each(function (node) {
-                var proxyHandle = attachProxy(node, args);
-                handles.push(proxyHandle);
                 // hook into the detach event to remove it from that node.
-                Y.after(Y.bind(afterDetach, null, node), proxyHandle, "detach");
+                Y.after(
+                    Y.bind(Y.detach, Y, categories.push(category = Y.guid() + "|")),
+                    handles.push(attachProxy(node, args, category)),
+                    "detach"
+                );
             });
             // return a handle
-            return { evt:handles, sub:nodeList, detach:function () {
-                Y.Array.each(handles, function (h) { h.detach() });
-            }};
+            return {
+                evt : handles,
+                sub : nodeList,
+                // detaching this one detaches all of them.
+                detach : Y.bind(Y.Array.each, Y.Array, categories, Y.bind(Y.detach, Y))
+            };
         }
     },
     

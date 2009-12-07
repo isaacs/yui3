@@ -12,7 +12,7 @@ function ACWidget () { ACWidget.superclass.constructor.apply(this, arguments) };
 
 // shorthands
 // TODO: Uppercase all of these.
-var HANDLES = "_handles",
+var BOUND = "_bound",
     selectedIndex = "selectedIndex",
     _selectedIndex = "_selectedIndex",
     _originalValue = "_originalValue",
@@ -70,23 +70,22 @@ Y.ACWidget = Y.extend(
         bindUI : function (ac) {
             var widget = this,
                 cb = widget.get("contentBox"), //INHERITED
-                currentAC = widget.get("ac");
+                currentAC = widget.get("ac"),
+                category = Y.stamp(widget)+"|";
             
-            if (ac && currentAC !== ac && widget[HANDLES]) {
+            if (ac && currentAC !== ac && widget[BOUND]) {
                 // supplied something, it's new, and we're bound to something else.
-                YArrayeach(widget[HANDLES], function (handle) { handle.detach() });
-                widget[HANDLES] = 0; // small and falsey
+                Y.detach(category);
+                widget[BOUND] = 0; // small and falsey
             }
             ac = ac || currentAC;
             
-            // TODO:
             // if we have an ac, and we're not bound right now, then bind.
-            // use a detach category rather than using handles here.
-            
-            if (ac && !widget[HANDLES]) widget[HANDLES] = [
-                cb.delegate("click", widget.click, "li", widget),
-                Y.on("click", widget.hide, document), //INHERITED
-                ac.on("ac:load", function (e) {
+            if (ac && !widget[BOUND]) {
+                widget[BOUND] = 1;
+                cb.delegate(category+"click", widget.click, "li", widget),
+                Y.on(category+"click", widget.hide, document); //INHERITED
+                ac.on(category+"ac:load", function (e) {
                     widget
                         .setAttrs({
                             query : e.query,
@@ -94,16 +93,16 @@ Y.ACWidget = Y.extend(
                         })
                         .syncUI()
                         .show();
-                }),
+                });
                 // TODO: ac: should be superfluous
                 // if it's not, then file a bug, because that would mean it broken
-                ac.on("ac:query", function (e) {
+                ac.on(category+"ac:query", function (e) {
                     widget.set("query", e.value).syncUI();
-                }),
-                ac.on("ac:next", widget.next, widget),
-                ac.on("ac:previous", widget.previous, widget),
-                ac.on("ac:hide", widget.hide, widget) //INHERITED
-            ];
+                });
+                ac.on(category+"ac:next", widget.next, widget);
+                ac.on(category+"ac:previous", widget.previous, widget);
+                ac.on(category+"ac:hide", widget.hide, widget); //INHERITED
+            };
             return widget;
         },
         /**
@@ -232,7 +231,7 @@ Y.ACWidget = Y.extend(
              **/
             ac : {
                 setter : function (ac) {
-                    if (!this[HANDLES]) return; // it'll get bound when it renders
+                    if (!this[BOUND]) return; // it'll get bound when it renders
                     this.bindUI(ac);
                 },
                 validator : function (ac) {
