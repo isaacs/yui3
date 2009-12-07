@@ -1,11 +1,22 @@
 YUI.add('ac-plugin', function(Y) {
 
+/**
+ * ACPlugin - A plugin that exposes the proper events to make AutoComplete work
+ * on a form element (input or textarea, typically).
+ * 
+ * This utility is not intended to be used in isolation, but rather as a glue
+ * layer to work with ACWidget or some other display mechanism.
+ **/
+function ACPlugin () { ACPlugin.superclass.constructor.apply(this, arguments) };
 
 
+// shorthands
 var autocomplete = "autocomplete",
     YLang = Y.Lang,
     YArrayeach = Y.Array.each,
     eventDefaultBehavior = {
+        // the default behavior of the query event is to check for a datasource,
+        // and then make a request with it.
         query : function (e) {
             var self = this,
                 ds = self.get("dataSource"),
@@ -22,20 +33,16 @@ var autocomplete = "autocomplete",
         }
     };
 
-
-function ACPlugin () { ACPlugin.superclass.constructor.apply(this, arguments) };
-
-Y.extend(
-    (Y.Plugin.ACPlugin = Y.augment(ACPlugin, Y.EventTarget)),
+Y.Plugin.ACPlugin = Y.extend(
+    ACPlugin,
     Y.Plugin.Base,
     { // prototype
         initializer : function () {
             var self = this,
                 host = self.get("host");
-            self.handles = attachHandles(self, host);
+            attachHandles(self, host);
 
             // publish events:
-            // keep it simple
             // "query" for when value changes.
             // "load" for when data returns.
             // "show" for when it's time to show something
@@ -64,7 +71,7 @@ Y.extend(
             manageBrowserAC(host);
         },
         destructor : function () {
-            YArrayeach(this.handles, function (h) { h.detach() });
+            Y.detach(Y.stamp(this)+"|");
         },
         open : function () { this.fire("ac:show") },
         next : function (e) { e.preventDefault(); this.fire("ac:next") },
@@ -75,8 +82,25 @@ Y.extend(
         NAME : "ACPlugin",
         NS : "ac",
         ATTRS : {
+            /**
+             * The value that will be queried.
+             * 
+             * By default, this is just a proxy to the host's value attr, which in
+             * Node objects passes through to the underlying DOM node.
+             * 
+             * However, in some use cases, it may be useful to override the queryValue
+             * getters and setters, for example, in the delimited case.
+             *
+             * Setting caches the value so that we only make new requests for user-entered
+             * data, and not for programmatically-set values.  (For example, when a user
+             * is scrolling through the items displayed in an  ACWidget.)
+             * 
+             * @for ACPlugin
+             * @type {String}
+             * @public
+             **/
             queryValue : {
-                // override these in the other AC modules as necessary.
+                // override these in AC plugin children as necessary.
                 // for instance, the delimited getter could get the cursor location,
                 // split on the delimiter, and then return the selected one.
                 // the inline-replacing setter could set-and-select the rest of the word.
@@ -91,7 +115,20 @@ Y.extend(
                 }
             },
 
-            // data source object
+            /**
+             * A data source object to be used to make queries and such.
+             * It is not required that it be a DataSource object per se, but it
+             * must provide a "sendRequest" function that takes the same sort of
+             * argument as the DataSource classes.
+             * 
+             * It is not required to use this, as the implementor can listen to
+             * ac:query events and handle them in any ad-hoc way desired.  However,
+             * for the 99% use case, it's simpler to just provide a data source
+             * and do things in the normal way.
+             * 
+             * @for ACPlugin
+             * @type Object
+             **/
             dataSource : {
                 validator : function (ds) {
                     // quack.
@@ -99,15 +136,28 @@ Y.extend(
                 }
             },
 
-            // minimum number of chars before we'll query
+            /**
+             * The minimum number of characters required before kicking off a query.
+             * @for ACPlugin
+             * @public
+             * @type Number
+             * @default 3
+             **/
             minQueryLength : {
                 value : 3,
                 validator : YLang.isNumber
             },
-
-            // convert a value into a request for the DS
-            // Can be either a string containg "{query}" somewhere,
-            // or a function that takes and returns a string.
+            
+            /**
+             * Attribute used to convert a value into a request for the
+             * DataSource.  Can be a string containing "{query}" somewhere,
+             * or a function that takes a value and returns a string.
+             *
+             * @for ACPlugin
+             * @type {Function|String}
+             * @default encodeURIComponent
+             * @public
+             **/
             queryTemplate : {
                 value : encodeURIComponent,
                 setter : function (q) {
@@ -136,19 +186,32 @@ Y.extend(
 
 // helpers below
 
+/**
+ * Attach the required event handles to the host node.
+ * 
+ * @param self {Object} The ACPlugin instance
+ * @param host {Object} The host object
+ * @return {Array} A list of handles
+ * @private
+ **/
 function attachHandles (self, host) {
-    return [
-        // query on valueChange
-        Y.on("valueChange", valueChangeHandler, host, self),
-        // next/open on down
-        Y.on("key", self.next, host, "down:40", self),
-        // previous on up
-        Y.on("key", self.previous, host, "down:38", self),
-        // close on escape
-        Y.on("key", self.close, host, "down:27", self)
-    ];
+    var category = Y.stamp(this)+"|";
+    Y.on(category+"valueChange", valueChangeHandler, host, self);
+    // next/open on down
+    Y.on(category+"key", self.next, host, "down:40", self);
+    // previous on up
+    Y.on(category+"key", self.previous, host, "down:38", self);
+    // close on escape
+    Y.on(category+"key", self.close, host, "down:27", self);
 };
 
+/**
+ * The handler that listens to valueChange events and decides whether or not
+ * to kick off a new query.
+ *
+ * @param {Object} The event object
+ * @private
+ **/
 function valueChangeHandler (e) {
     var value = e.value;
     if (!value) return this.close();
@@ -158,11 +221,31 @@ function valueChangeHandler (e) {
 };
 
 
+/**
+ * A factory method that returns a function to re-enable the browser's builtin
+ * AutoComplete, so that form values will be tracked.
+ *
+ * @private
+ * @param domnode {HTMLElement} The dom node to re-enable on unload
+ * @return {Function} A function that will re-enable the browser autocomplete
+ **/
 function browserACFixer (domnode) { return function () {
     if (domnode) domnode.setAttribute(autocomplete, "on");
     domnode = null;
 }};
 
+/**
+ * Manage the browser's builtin AutoComplete behavior, so that form values
+ * will be tracked in browsers that do that.
+ * 
+ * First, disable the browser's autocomplete, since that'll cause issues.
+ * If the element is not set up to disable the browser's builtin autocomplete,
+ * then set an unload listener to re-enable it.
+ * 
+ * @private
+ * @param host {Object} The node to manage
+ * @see {browserACFixer}
+ **/
 function manageBrowserAC (host) {
     // turn off the browser's autocomplete, but take note of it to turn
     // it back on later.
@@ -182,6 +265,12 @@ function manageBrowserAC (host) {
     domnode.setAttribute(autocomplete, "off");
 };
 
+/**
+ * Handle the responses from the DataSource utility, firing ac:load if there
+ * are results.
+ *
+ * @private
+ **/
 function handleQueryResponse (e) {
     var res = (e && e.response && e.response.results) ? e.response.results : e;
     

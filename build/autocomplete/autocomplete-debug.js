@@ -1,11 +1,22 @@
 YUI.add('ac-plugin', function(Y) {
 
+/**
+ * ACPlugin - A plugin that exposes the proper events to make AutoComplete work
+ * on a form element (input or textarea, typically).
+ * 
+ * This utility is not intended to be used in isolation, but rather as a glue
+ * layer to work with ACWidget or some other display mechanism.
+ **/
+function ACPlugin () { ACPlugin.superclass.constructor.apply(this, arguments) };
 
 
+// shorthands
 var autocomplete = "autocomplete",
     YLang = Y.Lang,
     YArrayeach = Y.Array.each,
     eventDefaultBehavior = {
+        // the default behavior of the query event is to check for a datasource,
+        // and then make a request with it.
         query : function (e) {
             var self = this,
                 ds = self.get("dataSource"),
@@ -22,20 +33,16 @@ var autocomplete = "autocomplete",
         }
     };
 
-
-function ACPlugin () { ACPlugin.superclass.constructor.apply(this, arguments) };
-
-Y.extend(
-    (Y.Plugin.ACPlugin = Y.augment(ACPlugin, Y.EventTarget)),
+Y.Plugin.ACPlugin = Y.extend(
+    ACPlugin,
     Y.Plugin.Base,
     { // prototype
         initializer : function () {
             var self = this,
                 host = self.get("host");
-            self.handles = attachHandles(self, host);
+            attachHandles(self, host);
 
             // publish events:
-            // keep it simple
             // "query" for when value changes.
             // "load" for when data returns.
             // "show" for when it's time to show something
@@ -64,7 +71,7 @@ Y.extend(
             manageBrowserAC(host);
         },
         destructor : function () {
-            YArrayeach(this.handles, function (h) { h.detach() });
+            Y.detach(Y.stamp(this)+"|");
         },
         open : function () { this.fire("ac:show") },
         next : function (e) { e.preventDefault(); this.fire("ac:next") },
@@ -75,8 +82,25 @@ Y.extend(
         NAME : "ACPlugin",
         NS : "ac",
         ATTRS : {
+            /**
+             * The value that will be queried.
+             * 
+             * By default, this is just a proxy to the host's value attr, which in
+             * Node objects passes through to the underlying DOM node.
+             * 
+             * However, in some use cases, it may be useful to override the queryValue
+             * getters and setters, for example, in the delimited case.
+             *
+             * Setting caches the value so that we only make new requests for user-entered
+             * data, and not for programmatically-set values.  (For example, when a user
+             * is scrolling through the items displayed in an  ACWidget.)
+             * 
+             * @for ACPlugin
+             * @type {String}
+             * @public
+             **/
             queryValue : {
-                // override these in the other AC modules as necessary.
+                // override these in AC plugin children as necessary.
                 // for instance, the delimited getter could get the cursor location,
                 // split on the delimiter, and then return the selected one.
                 // the inline-replacing setter could set-and-select the rest of the word.
@@ -91,7 +115,20 @@ Y.extend(
                 }
             },
 
-            // data source object
+            /**
+             * A data source object to be used to make queries and such.
+             * It is not required that it be a DataSource object per se, but it
+             * must provide a "sendRequest" function that takes the same sort of
+             * argument as the DataSource classes.
+             * 
+             * It is not required to use this, as the implementor can listen to
+             * ac:query events and handle them in any ad-hoc way desired.  However,
+             * for the 99% use case, it's simpler to just provide a data source
+             * and do things in the normal way.
+             * 
+             * @for ACPlugin
+             * @type Object
+             **/
             dataSource : {
                 validator : function (ds) {
                     // quack.
@@ -99,15 +136,28 @@ Y.extend(
                 }
             },
 
-            // minimum number of chars before we'll query
+            /**
+             * The minimum number of characters required before kicking off a query.
+             * @for ACPlugin
+             * @public
+             * @type Number
+             * @default 3
+             **/
             minQueryLength : {
                 value : 3,
                 validator : YLang.isNumber
             },
-
-            // convert a value into a request for the DS
-            // Can be either a string containg "{query}" somewhere,
-            // or a function that takes and returns a string.
+            
+            /**
+             * Attribute used to convert a value into a request for the
+             * DataSource.  Can be a string containing "{query}" somewhere,
+             * or a function that takes a value and returns a string.
+             *
+             * @for ACPlugin
+             * @type {Function|String}
+             * @default encodeURIComponent
+             * @public
+             **/
             queryTemplate : {
                 value : encodeURIComponent,
                 setter : function (q) {
@@ -136,19 +186,32 @@ Y.extend(
 
 // helpers below
 
+/**
+ * Attach the required event handles to the host node.
+ * 
+ * @param self {Object} The ACPlugin instance
+ * @param host {Object} The host object
+ * @return {Array} A list of handles
+ * @private
+ **/
 function attachHandles (self, host) {
-    return [
-        // query on valueChange
-        Y.on("valueChange", valueChangeHandler, host, self),
-        // next/open on down
-        Y.on("key", self.next, host, "down:40", self),
-        // previous on up
-        Y.on("key", self.previous, host, "down:38", self),
-        // close on escape
-        Y.on("key", self.close, host, "down:27", self)
-    ];
+    var category = Y.stamp(this)+"|";
+    Y.on(category+"valueChange", valueChangeHandler, host, self);
+    // next/open on down
+    Y.on(category+"key", self.next, host, "down:40", self);
+    // previous on up
+    Y.on(category+"key", self.previous, host, "down:38", self);
+    // close on escape
+    Y.on(category+"key", self.close, host, "down:27", self);
 };
 
+/**
+ * The handler that listens to valueChange events and decides whether or not
+ * to kick off a new query.
+ *
+ * @param {Object} The event object
+ * @private
+ **/
 function valueChangeHandler (e) {
     var value = e.value;
     if (!value) return this.close();
@@ -158,11 +221,31 @@ function valueChangeHandler (e) {
 };
 
 
+/**
+ * A factory method that returns a function to re-enable the browser's builtin
+ * AutoComplete, so that form values will be tracked.
+ *
+ * @private
+ * @param domnode {HTMLElement} The dom node to re-enable on unload
+ * @return {Function} A function that will re-enable the browser autocomplete
+ **/
 function browserACFixer (domnode) { return function () {
     if (domnode) domnode.setAttribute(autocomplete, "on");
     domnode = null;
 }};
 
+/**
+ * Manage the browser's builtin AutoComplete behavior, so that form values
+ * will be tracked in browsers that do that.
+ * 
+ * First, disable the browser's autocomplete, since that'll cause issues.
+ * If the element is not set up to disable the browser's builtin autocomplete,
+ * then set an unload listener to re-enable it.
+ * 
+ * @private
+ * @param host {Object} The node to manage
+ * @see {browserACFixer}
+ **/
 function manageBrowserAC (host) {
     // turn off the browser's autocomplete, but take note of it to turn
     // it back on later.
@@ -182,6 +265,12 @@ function manageBrowserAC (host) {
     domnode.setAttribute(autocomplete, "off");
 };
 
+/**
+ * Handle the responses from the DataSource utility, firing ac:load if there
+ * are results.
+ *
+ * @private
+ **/
 function handleQueryResponse (e) {
     var res = (e && e.response && e.response.results) ? e.response.results : e;
     
@@ -197,12 +286,21 @@ function handleQueryResponse (e) {
 }, '@VERSION@' ,{requires:['node', 'plugin', 'value-change', 'event-key'], optional:['event-custom']});
 YUI.add('ac-widget', function(Y) {
 
-// just a default display widget for the autocomplete component
-// this is the one you expect when you say "autocomplete"
+
+
+
+/**
+ * The default display widget for the AutoComplete component.
+ * This is what is expected when you say "autocomplete".
+ * @class ACWidget
+ * @inherits Widget
+ **/
 
 function ACWidget () { ACWidget.superclass.constructor.apply(this, arguments) };
 
-var HANDLES = "_handles",
+// shorthands
+// TODO: Uppercase all of these.
+var BOUND = "_bound",
     selectedIndex = "selectedIndex",
     _selectedIndex = "_selectedIndex",
     _originalValue = "_originalValue",
@@ -216,10 +314,19 @@ Y.ACWidget = Y.extend(
     { // prototype
         initializer : function () {
             var self = this;
-            self.after("queryChanged", self.syncUI, self);
-            self.after("dataChanged", self.syncUI, self);
+            self.after({
+                queryChanged : self.syncUI,
+                dataChanged : self.syncUI
+            });
             self.hide();
         },
+        /**
+         * Method to display the widget.  Just inserts the widget after
+         * the ACPlugin's host object and sets the size appropriately.
+         *
+         * @for ACWidget
+         * @public
+         **/
         renderUI : function () {
             var ac = this.get("ac");
             if (!ac) {
@@ -228,38 +335,68 @@ Y.ACWidget = Y.extend(
             }
             var input = ac.get("host");
             insertAfter(this.get("boundingBox"), input);
-            return this.setSize();
+            this.setSize();
+            return;
         },
+        /**
+         * Get the size of the ACPlugin's host object, and then set the widget's width
+         * to the same size.  Defined thusly so that it's easy to override.
+         *
+         * @public
+         * @for ACWidget
+         **/
         setSize : function () {            
             return this.set("width", this.get("ac").get("host").getComputedStyle("width"));
         },
+        /**
+         * Bind the necessary event handles, unbinding if there were any other handles
+         * in place already.
+         *
+         * @param ac {Object} Optionally set the ACPlugin object at the same time,
+         * that it can be easily re-bound in the ac setter.
+         **/
         bindUI : function (ac) {
             var widget = this,
                 cb = widget.get("contentBox"), //INHERITED
-                ac = ac || widget.get("ac");
-            if (widget[HANDLES]) {
-                YArrayeach(widget[HANDLES], function (handle) { handle.detach() });
-                widget[HANDLES] = 0; // small and falsey
+                currentAC = widget.get("ac"),
+                category = Y.stamp(widget)+"|";
+            
+            if (ac && currentAC !== ac && widget[BOUND]) {
+                // supplied something, it's new, and we're bound to something else.
+                Y.detach(category);
+                widget[BOUND] = 0; // small and falsey
             }
-            if (ac) widget[HANDLES] = [
-                cb.delegate("click", widget.click, "li", widget),
-                Y.on("click", widget.hide, document), //INHERITED
-                ac.on("ac:load", function (e) {
+            ac = ac || currentAC;
+            
+            // if we have an ac, and we're not bound right now, then bind.
+            if (ac && !widget[BOUND]) {
+                widget[BOUND] = 1;
+                cb.delegate(category+"click", widget.click, "li", widget);
+                Y.on(category+"click", widget.hide, document); //INHERITED
+                ac.on(category+"ac:load", function (e) {
                     widget
-                        .set("query", e.query)
-                        .set("data", e.results)
+                        .setAttrs({
+                            query : e.query,
+                            data : e.results
+                        })
                         .syncUI()
                         .show();
-                }),
-                ac.on("ac:query", function (e) {
+                });
+                // TODO: ac: should be superfluous
+                // if it's not, then file a bug, because that would mean it broken
+                ac.on(category+"ac:query", function (e) {
                     widget.set("query", e.value).syncUI();
-                }),
-                ac.on("ac:next", widget.next, widget),
-                ac.on("ac:previous", widget.previous, widget),
-                ac.on("ac:hide", widget.hide, widget) //INHERITED
-            ];
+                });
+                ac.on(category+"ac:next", widget.next, widget);
+                ac.on(category+"ac:previous", widget.previous, widget);
+                ac.on(category+"ac:hide", widget.hide, widget); //INHERITED
+            };
             return widget;
         },
+        /**
+         * If there is data, then set the markup.
+         * Otherwise, do nothing.
+         **/
         syncUI : function () {
             var self = this,
                 data = self.get("data"),
@@ -270,6 +407,11 @@ Y.ACWidget = Y.extend(
             self.get("contentBox").set("innerHTML", self.getListMarkup(data)); //INHERITED
             return self;
         },
+        /**
+         * Given a set of data, return the markup that should go in the widget.
+         * @param {Array} The data object, some array-ish thing.
+         * @return {String} The markup that goes in the widget.
+         **/
         getListMarkup : function (data) {
             var self = this,
                 listTemplate = self.get("listTpl"),
@@ -279,16 +421,29 @@ Y.ACWidget = Y.extend(
             });
             return listTemplate.replace(/\{list\}/g, markup.join(""));
         },
+        /**
+         * Given a single item, return the markup for that item.
+         * @param {String} the data item
+         * @return {String} The markup, generated based on the itemTpl
+         **/
         getItemMarkup : function (item) {
             return this.get("itemTpl")
                 .replace(/\{term\}/g, item)
                 .replace(/\{hilite\}/g, this.getHiliteMarkup(item))
                 // .replace(/<([^<>]*)<[^>]*>([^<>]*)>/g, '<$1$2>');
         },
+        /**
+         * Given a single item, return the markup with the query terms hilighted.
+         * @param {String} The data item
+         * @return {String} The string with the query terms hilighted, according to the
+         * hiliteTpl attr.
+         **/
         getHiliteMarkup : function (item) {
             var self = this,
                 queryTerms = self.get("query").split(/\s+/)
                 out = item;
+            //TODO: use Y.cache on this fn so that the regexp is only created
+            // once per term/queryTerms
             YArrayeach(queryTerms, function (term) {
                 if (!term) return;
                 term = regexpEscape(term);
@@ -299,28 +454,52 @@ Y.ACWidget = Y.extend(
             });
             return out;
         },
+        /**
+         * The handler for the ACPlugin's ac:next event.
+         **/
         next : function () {
             var self = this;
-            if (self.get("visible")) return self.selectNext();
-            if (self.get("data")) self.show();
-            return self;
+            
+            return (
+                self.get("visible") ? self.selectNext()
+                : self.get("data") ? self.show()
+                : self
+            );
         },
+        /**
+         * Select the next item in the list.  Called by next() when the widget is visible.
+         */
         selectNext : function () {
-            var si = this.get(selectedIndex);
-            return this.set(selectedIndex, si + 1);
+            return this.set(selectedIndex, this.get(selectedIndex) + 1);
         },
+        /**
+         * Select the previous item in the list. Called by previous() when the widget is visible.
+         **/
         selectPrevious : function () {
-            var si = this.get(selectedIndex);
-            return this.set(selectedIndex, si - 1);
+            return this.set(selectedIndex, this.get(selectedIndex) - 1);
         },
+        /**
+         * Select the previous item in the list if the widget is visible.
+         **/
         previous : function () {
-            if (this.get("visible")) this.selectPrevious();
-            return this;
+            return this.get("visible") ? this.selectPrevious() : this;
         },
+        /**
+         * Get the nth item in the list using the itemSelector attr.
+         * Note that, for compatibility with NodeList.item(), this is zero-indexed.
+         * However, the CSS nth-item selector is one-indexed, so we add 1 to the arg.
+         * @param n {Number} The item to retrieve (zero-indexed)
+         **/
         item : function (n) {
             return this.get("contentBox")
                 .one(this.get("itemSelector").replace(/\{n\}/g, regexpEscape(n + 1)));
         },
+        /**
+         * The click handler, set the ACPlugin queryValue to the text of the clicked element,
+         * and then hides the widget.
+         *
+         * @param e {Object} The event object, or anything with a currentTarget.get("text")
+         **/
         click : function (e) {
             var self = this,
                 ac = self.get("ac"),
@@ -335,9 +514,12 @@ Y.ACWidget = Y.extend(
     { // statics
         NAME : "ACWidget",
         ATTRS : {
+            /**
+             * The ACPlugin object to hook into.
+             **/
             ac : {
                 setter : function (ac) {
-                    if (!this[HANDLES]) return; // it'll get bound when it renders
+                    if (!this[BOUND]) return; // it'll get bound when it renders
                     this.bindUI(ac);
                 },
                 validator : function (ac) {
@@ -345,20 +527,53 @@ Y.ACWidget = Y.extend(
                     return true
                 }
             },
+            /**
+             * The data provided by an ac:load event
+             **/
             data : {
                 validator : function (d) { return d && d.length > 0 }
             },
+            /**
+             * The query provided along with the data set in an ac:load event.
+             * This is used to hilite the items in the list.
+             **/
             query : { value : "" },
+            /**
+             * The markup template for the list of items.
+             **/
             listTpl : { value : "<ul>{list}</ul>" },
+            /**
+             * The item template for each item in the list
+             **/
             itemTpl : { value : "<li>{hilite}</li>" },
+            /**
+             * The CSS selector used to find items in the list.
+             * Note that {n} in this case is one-indexed, not zero-indexed.
+             **/
             itemSelector : { value : "ul li:nth-child({n})" },
+            /**
+             * The template used to hilite terms
+             **/
             hiliteTpl : { value : "<em>{term}</em>" }
         } // ATTRS
     } // statics
 );
+/**
+ * The item that is selected, for example when the user presses the down arrow to cycle
+ * through the available results.
+ * 
+ * Changing this value causes the ACPlugin to set its queryValue to the new setting.
+ * Setting it to -1 makes it go back to what the user had entered.
+ * Setting it to less than -1 or greater than the number of items will cause it to wrap around.
+ *
+ * @attr selectedIndex
+ * @for ACWidget
+ **/
 // don't define this one inline, so that we can compress the key
+// 
 ACWidget.ATTRS[selectedIndex] = {
     value : -1,
+    // validator should be the name to of an instance method
     validator : function (si) {
         var d = this.get("data");
         return d && Y.Lang.isNumber(si);
@@ -411,11 +626,25 @@ ACWidget.ATTRS[selectedIndex] = {
     }
 }; // selectedIndex
 
+/**
+ * Escape the characters that regexes care about.
+ * @private
+ **/
+//TODO: Feature request (with code) to put this in Lang.
 function regexpEscape (text) {
-    return (""+text).replace(/([\/\.\*\+\?\|\(\)\[\]\{\}\\])/g, '\\$1');
+    return (""+text).replace(/([\^\/.*+?|()[\]{}\\])/g, '\\$1');
 }
 
+/**
+ * Insert a node after the reference node.
+ * @private
+ **/
+//TODO: Get rid of this fn
 function insertAfter (node, ref) {
+    ref.insert(node, "after");
+    return;
+    
+    
     var p = ref.get("parentNode");
     p.insertBefore(node, ref);
     p.insertBefore(ref, node);

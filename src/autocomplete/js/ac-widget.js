@@ -83,7 +83,7 @@ Y.ACWidget = Y.extend(
             // if we have an ac, and we're not bound right now, then bind.
             if (ac && !widget[BOUND]) {
                 widget[BOUND] = 1;
-                cb.delegate(category+"click", widget.click, "li", widget),
+                cb.delegate(category+"click", widget.click, "li", widget);
                 Y.on(category+"click", widget.hide, document); //INHERITED
                 ac.on(category+"ac:load", function (e) {
                     widget
